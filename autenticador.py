@@ -38,7 +38,8 @@ from cryptography.exceptions import InvalidTag  # noqa: E402
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM  # noqa: E402
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt  # noqa: E402
 
-APP_ID = "io.github.arthur.Autenticador"
+APP_ID = "io.github.Arthurdnl.Autenticador"
+LEGACY_APP_ID = "io.github.arthur.Autenticador"  # até 17/11/2026
 DATA_DIR = Path(GLib.get_user_data_dir()) / "autenticador"
 VAULT_PATH = DATA_DIR / "vault.json"
 SETTINGS_PATH = DATA_DIR / "settings.json"
@@ -358,10 +359,26 @@ class Vault:
 # GNOME (destrancado no login). A senha mestra continua valendo sempre.
 KEYRING_SCHEMA = Secret.Schema.new(APP_ID + ".VaultKey", Secret.SchemaFlags.NONE,
                                    {"vault": Secret.SchemaAttributeType.STRING})
+_LEGACY_KEYRING_SCHEMA = Secret.Schema.new(LEGACY_APP_ID + ".VaultKey", Secret.SchemaFlags.NONE,
+                                           {"vault": Secret.SchemaAttributeType.STRING})
 
 
 def _keyring_attrs():
     return {"vault": str(VAULT_PATH)}
+
+
+def keyring_migrate_legacy():
+    """Move a chave guardada com o identificador antigo do app para o novo, para a digital
+    continuar funcionando sem precisar reativar."""
+    try:
+        secret = Secret.password_lookup_sync(_LEGACY_KEYRING_SCHEMA, _keyring_attrs(), None)
+        if not secret:
+            return
+        if not Secret.password_lookup_sync(KEYRING_SCHEMA, _keyring_attrs(), None):
+            keyring_store_key(_b64d(secret))
+        Secret.password_clear_sync(_LEGACY_KEYRING_SCHEMA, _keyring_attrs(), None)
+    except GLib.Error:
+        pass
 
 
 def keyring_has_key():
@@ -1421,6 +1438,7 @@ class Window(Adw.ApplicationWindow):
 
         self._inactive_since = None  # desde quando a janela está sem foco (bloqueio automático)
         self._watch_screen_lock()
+        keyring_migrate_legacy()
         self.show_lock()
         GLib.timeout_add(500, self._tick)
 

@@ -11,7 +11,8 @@ fi
 python3 -m venv --system-site-packages "$DIR/.venv"
 "$DIR/.venv/bin/pip" install -q -r "$DIR/requirements.txt"
 mkdir -p ~/.local/share/applications
-cat > ~/.local/share/applications/io.github.arthur.Autenticador.desktop <<DESKTOP
+rm -f ~/.local/share/applications/io.github.arthur.Autenticador.desktop  # identificador antigo
+cat > ~/.local/share/applications/io.github.Arthurdnl.Autenticador.desktop <<DESKTOP
 [Desktop Entry]
 Type=Application
 Name=Autenticador
@@ -21,7 +22,7 @@ Icon=dialog-password
 Terminal=false
 Categories=Utility;Security;
 Keywords=2fa;totp;otp;authenticator;autenticador;
-StartupWMClass=io.github.arthur.Autenticador
+StartupWMClass=io.github.Arthurdnl.Autenticador
 DESKTOP
 update-desktop-database ~/.local/share/applications 2>/dev/null || true
 echo "Pronto! Procure 'Autenticador' no menu de aplicativos."
