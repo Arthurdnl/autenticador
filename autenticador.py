@@ -32,14 +32,14 @@ gi.require_version("Adw", "1")
 gi.require_version("Secret", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango, Secret  # noqa: E402
 
-import cv2  # noqa: E402
-import numpy as np  # noqa: E402
-from cryptography.exceptions import InvalidTag  # noqa: E402
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM  # noqa: E402
-from cryptography.hazmat.primitives.kdf.scrypt import Scrypt  # noqa: E402
+import cairo  # noqa: E402
+import zxingcpp  # noqa: E402
+from Cryptodome.Cipher import AES  # noqa: E402
 
 APP_ID = "io.github.Arthurdnl.Autenticador"
 LEGACY_APP_ID = "io.github.arthur.Autenticador"  # até 17/11/2026
+# no Flatpak a digital fica de fora (v1): falar com o fprintd exige permissão no barramento do sistema
+FINGERPRINT_SUPPORTED = not os.path.exists("/.flatpak-info")
 DATA_DIR = Path(GLib.get_user_data_dir()) / "autenticador"
 VAULT_PATH = DATA_DIR / "vault.json"
 SETTINGS_PATH = DATA_DIR / "settings.json"
@@ -130,11 +130,11 @@ def build_otpauth(acc):
             + "?" + urllib.parse.urlencode(params, quote_via=urllib.parse.quote))
 
 
-def qr_png(text, scale=10):
-    """PNG (bytes) do QR code de text, já com a margem branca."""
-    img = cv2.QRCodeEncoder.create().encode(text)
-    img = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
-    return cv2.imencode(".png", img)[1].tobytes()
+def qr_texture(text, scale=10):
+    """Textura (tons de cinza) do QR code de text, já com a margem branca."""
+    img = zxingcpp.create_barcode(text, zxingcpp.BarcodeFormat.QRCode).to_image(scale=scale)
+    h, w = memoryview(img).shape
+    return Gdk.MemoryTexture.new(w, h, Gdk.MemoryFormat.G8, GLib.Bytes.new(bytes(memoryview(img))), w)
 
 
 def _varint(buf, i):
@@ -206,38 +206,41 @@ def parse_payload(text):
     return None
 
 
-def decode_qr(img):
-    """Decodifica QR codes de uma imagem (ndarray BGR/BGRA/gray). Retorna lista de textos."""
-    if img is None:
+def decode_qr(texture):
+    """Decodifica QR codes de uma Gdk.Texture. Retorna lista de textos."""
+    if texture is None:
         return []
-    if img.ndim == 3 and img.shape[2] == 4:  # compõe transparência sobre branco
-        alpha = img[:, :, 3:4].astype(np.float32) / 255.0
-        img = (img[:, :, :3] * alpha + 255 * (1 - alpha)).astype(np.uint8)
-    gray = img if img.ndim == 2 else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    candidates = [gray]
-    h, w = gray.shape[:2]
-    if max(h, w) < 1200:
-        candidates.append(cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_NEAREST))
-    if max(h, w) > 2500:
-        candidates.append(cv2.resize(gray, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA))
-    candidates.append(cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1])
-    candidates.append(255 - gray)  # QR claro em fundo escuro
-    # borda branca ajuda quando o print está cortado rente ao QR
-    candidates.append(cv2.copyMakeBorder(gray, 40, 40, 40, 40, cv2.BORDER_CONSTANT, value=255))
+    w, h = texture.get_width(), texture.get_height()
+    downloader = Gdk.TextureDownloader.new(texture)
+    downloader.set_format(Gdk.MemoryFormat.B8G8R8A8_PREMULTIPLIED)  # = ARGB32 do cairo
+    data, stride = downloader.download_bytes()
+    source = cairo.ImageSurface.create_for_data(bytearray(data.get_data()), cairo.FORMAT_ARGB32, w, h, stride)
+    # compõe sobre branco (print com transparência) com uma margem branca, que ajuda quando
+    # o print está cortado rente ao QR
+    pad = 40
+    surface = cairo.ImageSurface(cairo.FORMAT_RGB24, w + 2 * pad, h + 2 * pad)
+    cr = cairo.Context(surface)
+    cr.set_source_rgb(1, 1, 1)
+    cr.paint()
+    cr.set_source_surface(source, pad, pad)
+    cr.paint()
+    surface.flush()
+    # o ImageView não segura o buffer: `pixels` precisa viver até o fim da leitura
+    pixels = bytes(surface.get_data())
+    view = zxingcpp.ImageView(pixels, surface.get_width(), surface.get_height(),
+                              zxingcpp.ImageFormat.BGRA, surface.get_stride())
+    # zxing já tenta invertido (QR claro em fundo escuro), girado e reduzido
+    found = zxingcpp.read_barcodes(view, formats=zxingcpp.BarcodeFormat.QRCode)
+    del view, pixels
+    return [b.text for b in found if b.text]
 
-    detector = cv2.QRCodeDetector()
-    for c in candidates:
-        try:
-            ok, texts, _, _ = detector.detectAndDecodeMulti(c)
-            found = [t for t in texts if t] if ok else []
-            if found:
-                return found
-            text, _, _ = detector.detectAndDecode(c)
-            if text:
-                return [text]
-        except cv2.error:
-            continue
-    return []
+
+def texture_from_bytes(data):
+    """Gdk.Texture de um arquivo de imagem (PNG, JPEG…), ou None se não der para ler."""
+    try:
+        return Gdk.Texture.new_from_bytes(GLib.Bytes.new(data))
+    except GLib.Error:
+        return None
 
 
 # ---------------------------------------------------------------- cofre
@@ -262,15 +265,41 @@ def _atomic_write(path, text):
     os.replace(tmp, path)
 
 
+class InvalidTag(Exception):
+    """Senha/chave errada ou arquivo adulterado (a verificação do AES-GCM falhou)."""
+
+
+GCM_TAG = 16
+
+
+def scrypt(password, salt, kdf):
+    return hashlib.scrypt(password.encode(), salt=salt, n=kdf["n"], r=kdf["r"], p=kdf["p"],
+                          dklen=32, maxmem=256 * 1024 * 1024)
+
+
+def gcm_encrypt(key, nonce, plain):
+    """AES-256-GCM; devolve texto cifrado + tag de 16 bytes (mesmo formato de antes)."""
+    ciphertext, tag = AES.new(key, AES.MODE_GCM, nonce=nonce).encrypt_and_digest(plain)
+    return ciphertext + tag
+
+
+def gcm_decrypt(key, nonce, data):
+    if len(data) < GCM_TAG:
+        raise InvalidTag
+    try:
+        return AES.new(key, AES.MODE_GCM, nonce=nonce).decrypt_and_verify(data[:-GCM_TAG], data[-GCM_TAG:])
+    except ValueError:
+        raise InvalidTag from None
+
+
 def derive_key(password, data):
     """Chave do cofre/backup `data` (dict do JSON gravado) para a senha."""
-    return Scrypt(salt=_b64d(data["salt"]), length=32, n=data["kdf"]["n"], r=data["kdf"]["r"],
-                  p=data["kdf"]["p"]).derive(password.encode())
+    return scrypt(password, _b64d(data["salt"]), data["kdf"])
 
 
 def decrypt_vault(data, key):
     """Conteúdo do cofre/backup. Lança InvalidTag se a chave não servir."""
-    return json.loads(AESGCM(key).decrypt(_b64d(data["nonce"]), _b64d(data["ciphertext"]), None))
+    return json.loads(gcm_decrypt(key, _b64d(data["nonce"]), _b64d(data["ciphertext"])))
 
 
 class Vault:
@@ -293,7 +322,7 @@ class Vault:
 
     @staticmethod
     def _derive(password, salt, kdf):
-        return Scrypt(salt=salt, length=32, n=kdf["n"], r=kdf["r"], p=kdf["p"]).derive(password.encode())
+        return scrypt(password, salt, kdf)
 
     def create(self, password):
         self.accounts = []
@@ -342,7 +371,7 @@ class Vault:
         nonce = os.urandom(12)
         plain = json.dumps({"accounts": self.accounts, "folders": self.folders, "ordered": True}).encode()
         data = {"version": 1, "kdf": self.kdf, "salt": _b64e(self.salt), "nonce": _b64e(nonce),
-                "ciphertext": _b64e(AESGCM(self.key).encrypt(nonce, plain, None))}
+                "ciphertext": _b64e(gcm_encrypt(self.key, nonce, plain))}
         _atomic_write(VAULT_PATH, json.dumps(data))
 
     def folder_name(self, fid):
@@ -771,12 +800,10 @@ def read_clipboard(widget, on_texts, on_error):
     def got_texture(cb, res):
         try:
             texture = cb.read_texture_finish(res)
-            png = texture.save_to_png_bytes().get_data()
-            img = cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_UNCHANGED)
         except GLib.Error:
             on_error("Não consegui ler a imagem da área de transferência.")
             return
-        texts = decode_qr(img)
+        texts = decode_qr(texture)
         if texts:
             on_texts(texts)
         else:
@@ -1022,9 +1049,11 @@ class AddDialog(Adw.Dialog):
                 file = d.open_finish(res)
             except GLib.Error:
                 return
-            ok, data, _ = file.load_contents(None)
-            img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_UNCHANGED) if ok else None
-            texts = decode_qr(img)
+            try:
+                data = file.load_contents(None)[1]
+            except GLib.Error:
+                data = None
+            texts = decode_qr(texture_from_bytes(data) if data else None)
             if texts:
                 self.handle_texts(texts)
             else:
@@ -1438,7 +1467,8 @@ class Window(Adw.ApplicationWindow):
 
         self._inactive_since = None  # desde quando a janela está sem foco (bloqueio automático)
         self._watch_screen_lock()
-        keyring_migrate_legacy()
+        if FINGERPRINT_SUPPORTED:
+            keyring_migrate_legacy()
         self.show_lock()
         GLib.timeout_add(500, self._tick)
 
@@ -1469,6 +1499,12 @@ class Window(Adw.ApplicationWindow):
             if params.unpack()[0]:  # True = indo suspender
                 on_lock()
 
+        # GTK acompanha a proteção de tela (no Flatpak, pelo portal) quando register-session está ligado
+        app = self.get_application()
+        app.connect("notify::screensaver-active",
+                    lambda a, _p: a.get_property("screensaver-active") and on_lock())
+
+        # fora do Flatpak, ouve também o GNOME/KDE e o logind direto (inclui suspender)
         none = Gio.DBusSignalFlags.NONE
         try:
             session = Gio.bus_get_sync(Gio.BusType.SESSION, None)
@@ -1555,7 +1591,8 @@ class Window(Adw.ApplicationWindow):
         lock_btn.connect("clicked", lambda *_: self.lock())
         general = Gio.Menu()
         general.append("Preferências", "win.preferences")
-        general.append("Desbloquear com digital", "win.fingerprint")
+        if FINGERPRINT_SUPPORTED:
+            general.append("Desbloquear com digital", "win.fingerprint")
         general.append("Trocar senha mestra…", "win.change-password")
         folders = Gio.Menu()
         folders.append_item(self._menu_item("Nova pasta…", "win.new-folder", GLib.Variant("s", "")))
@@ -1630,7 +1667,7 @@ class Window(Adw.ApplicationWindow):
         self.lock_error.set_visible(False)
         self.stack.set_visible_child_name("lock")
         self.pw_row.grab_focus()
-        self.fp_unlock_enabled = not first and keyring_has_key()
+        self.fp_unlock_enabled = FINGERPRINT_SUPPORTED and not first and keyring_has_key()
         self.fp_gave_up = False
         self.fp_box.set_visible(self.fp_unlock_enabled)
         self._update_fp_unlock()
@@ -1678,6 +1715,8 @@ class Window(Adw.ApplicationWindow):
         self._enter_main()
 
     def on_toggle_fingerprint(self, action, _param):
+        if not FINGERPRINT_SUPPORTED:
+            return
         if not self.vault.unlocked:
             return
         if self.fp.running:  # clicou de novo enquanto esperava o dedo: cancela
@@ -1736,7 +1775,7 @@ class Window(Adw.ApplicationWindow):
         self.fp.stop()
         self.pw_row.set_text("")
         self.pw2_row.set_text("")
-        self.fp_action.set_state(GLib.Variant.new_boolean(keyring_has_key()))
+        self.fp_action.set_state(GLib.Variant.new_boolean(FINGERPRINT_SUPPORTED and keyring_has_key()))
         self._inactive_since = None
         self.rebuild_list()
         self.stack.set_visible_child_name("main")
@@ -2086,7 +2125,7 @@ class Window(Adw.ApplicationWindow):
                       f"{acc['period']} s. O Microsoft Authenticator só aceita SHA1, 6 dígitos e 30 s, "
                       "e o Google pode gerar códigos errados.",
                 wrap=True, justify=Gtk.Justification.CENTER, css_classes=["warning"]))
-        texture = Gdk.Texture.new_from_bytes(GLib.Bytes.new(qr_png(uri)))
+        texture = qr_texture(uri)
         picture = Gtk.Picture(paintable=texture, content_fit=Gtk.ContentFit.CONTAIN,
                               width_request=280, height_request=280, halign=Gtk.Align.CENTER,
                               css_classes=["qr-frame"])
@@ -2163,7 +2202,7 @@ class Window(Adw.ApplicationWindow):
                 self.toast("Senha atual incorreta. Nada foi alterado.", 4)
                 return
             self.vault.change_password(new)
-            if keyring_has_key():  # digital ativa: o chaveiro passa a guardar a chave nova
+            if FINGERPRINT_SUPPORTED and keyring_has_key():  # digital ativa: o chaveiro passa a guardar a chave nova
                 try:
                     keyring_store_key(self.vault.key)
                 except GLib.Error:
@@ -2479,10 +2518,16 @@ class Window(Adw.ApplicationWindow):
 
 class App(Adw.Application):
     def __init__(self):
-        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS,
+                         register_session=True)
 
     def do_startup(self):
         Adw.Application.do_startup(self)
+        # rodando direto do repositório: usa o ícone de data/icons
+        icons = Path(__file__).resolve().parent / "data" / "icons"
+        if icons.is_dir():
+            Gtk.IconTheme.get_for_display(Gdk.Display.get_default()).add_search_path(str(icons))
+        Gtk.Window.set_default_icon_name(APP_ID)
         provider = Gtk.CssProvider()
         provider.load_from_string(CSS)
         Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), provider,

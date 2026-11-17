@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.Arthurdnl.Autenticador</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <name>Autenticador</name>
+  <summary>Two-factor codes and Brazilian test data</summary>
+  <summary xml:lang="pt_BR">Códigos 2FA e dados de teste brasileiros</summary>
+
+  <developer id="io.github.arthurdnl">
+    <name>Arthur Davis</name>
+  </developer>
+
+  <description>
+    <p>Generate two-factor authentication (TOTP) codes on your desktop. Add accounts by pasting a screenshot of the QR code, opening an image or typing the secret key. Secrets are kept in a local vault encrypted with your master password.</p>
+    <p xml:lang="pt_BR">Gere códigos de verificação em 2 etapas (TOTP) no computador. Adicione contas colando um print do QR code, abrindo uma imagem ou digitando a chave secreta. Os segredos ficam num cofre local criptografado com a sua senha mestra.</p>
+    <ul>
+      <li>Paste a QR code screenshot with Ctrl+V, or import a Google Authenticator export</li>
+      <li xml:lang="pt_BR">Cole o print do QR code com Ctrl+V ou importe a exportação do Google Authenticator</li>
+      <li>Folders, pinned accounts and drag-and-drop ordering</li>
+      <li xml:lang="pt_BR">Pastas, contas fixadas e reordenação arrastando</li>
+      <li>Export an account as a QR code to Microsoft or Google Authenticator</li>
+      <li xml:lang="pt_BR">Exporte uma conta por QR code para o Microsoft ou Google Authenticator</li>
+      <li>Locks automatically with the screen or after a few minutes in the background</li>
+      <li xml:lang="pt_BR">Bloqueia sozinho junto com a tela ou após alguns minutos em segundo plano</li>
+      <li>Encrypted backups and master password change</li>
+      <li xml:lang="pt_BR">Backups criptografados e troca da senha mestra</li>
+    </ul>
+    <p>For developers testing Brazilian systems, the Generator tab creates valid CPF, CNPJ (including the new alphanumeric format) and real postal codes (CEP, looked up on ViaCEP), and validates any CPF, CNPJ or CEP you paste. It works without unlocking the vault.</p>
+    <p xml:lang="pt_BR">Para quem desenvolve e testa sistemas brasileiros, a aba Gerador cria CPF, CNPJ (inclusive o novo formato alfanumérico) e CEP reais (consultados no ViaCEP) válidos, e valida qualquer CPF, CNPJ ou CEP colado. Funciona sem desbloquear o cofre.</p>
+  </description>
+
+  <launchable type="desktop-id">io.github.Arthurdnl.Autenticador.desktop</launchable>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>Two-factor codes</caption>
+      <caption xml:lang="pt_BR">Códigos de verificação</caption>
+      <image>https://raw.githubusercontent.com/Arthurdnl/autenticador/v1.0.0/data/screenshots/codes.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Test data generator</caption>
+      <caption xml:lang="pt_BR">Gerador de dados de teste</caption>
+      <image>https://raw.githubusercontent.com/Arthurdnl/autenticador/v1.0.0/data/screenshots/generator.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Export an account to another app</caption>
+      <caption xml:lang="pt_BR">Exportar uma conta para outro app</caption>
+      <image>https://raw.githubusercontent.com/Arthurdnl/autenticador/v1.0.0/data/screenshots/export.png</image>
+    </screenshot>
+  </screenshots>
+
+  <url type="homepage">https://github.com/Arthurdnl/autenticador</url>
+  <url type="bugtracker">https://github.com/Arthurdnl/autenticador/issues</url>
+  <url type="vcs-browser">https://github.com/Arthurdnl/autenticador</url>
+
+  <content_rating type="oars-1.1"/>
+
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+
+  <branding>
+    <color type="primary" scheme_preference="light">#ffc8a3</color>
+    <color type="primary" scheme_preference="dark">#8a2f1a</color>
+  </branding>
+
+  <releases>
+    <release version="1.0.0" date="2026-11-17">
+      <description>
+        <p>First release on Flathub.</p>
+      </description>
+    </release>
+  </releases>
+</component>

@@ -18,12 +18,15 @@ Type=Application
 Name=Autenticador
 Comment=Códigos de verificação em 2 etapas (2FA)
 Exec=$DIR/.venv/bin/python -I $DIR/autenticador.py
-Icon=dialog-password
+Icon=io.github.Arthurdnl.Autenticador
 Terminal=false
 Categories=Utility;Security;
 Keywords=2fa;totp;otp;authenticator;autenticador;
 StartupWMClass=io.github.Arthurdnl.Autenticador
 DESKTOP
+mkdir -p ~/.local/share/icons/hicolor/scalable/apps
+cp "$DIR/data/icons/hicolor/scalable/apps/io.github.Arthurdnl.Autenticador.svg" ~/.local/share/icons/hicolor/scalable/apps/
+gtk-update-icon-cache -q -t ~/.local/share/icons/hicolor 2>/dev/null || true
 update-desktop-database ~/.local/share/applications 2>/dev/null || true
 echo "Pronto! Procure 'Autenticador' no menu de aplicativos."
 echo "Ou rode: $DIR/.venv/bin/python -I $DIR/autenticador.py"

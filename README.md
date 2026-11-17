@@ -7,7 +7,7 @@ App de 2FA (TOTP) para o desktop Linux, no estilo Google Authenticator, com um g
 - Adiciona contas colando um print do QR code (Ctrl+V), abrindo uma imagem, digitando a chave secreta ou um link `otpauth://`.
 - Importa a exportação do Google Authenticator (QR `otpauth-migration://`).
 - Os segredos ficam num cofre local criptografado (scrypt + AES-256-GCM) com senha mestra.
-- Opcional: desbloqueio por digital (fprintd + chaveiro do GNOME).
+- Opcional: desbloqueio por digital (fprintd + chaveiro do GNOME), só na instalação comum (fora do Flatpak).
 - Clique na conta para copiar o código; arraste ou use Alt+↑/↓ para reordenar; fixe favoritas no topo; organize em pastas.
 - Exporta uma conta para outro app (Microsoft ou Google Authenticator) por QR code: menu ⋮ → Exportar para outro app. Mostra o código atual para conferir antes de remover daqui.
 - Trocar senha mestra e exportar/importar backup criptografado pelo menu.
@@ -50,6 +50,20 @@ python3 -m venv --system-site-packages .venv
 .venv/bin/pip install -r requirements.txt
 .venv/bin/python -I autenticador.py
 ```
+
+## Flatpak
+
+Para gerar e instalar o Flatpak localmente (precisa do `org.gnome.Sdk//51` e do `org.flatpak.Builder` do Flathub):
+
+```bash
+flatpak run org.flatpak.Builder --user --install --force-clean --jobs=2 \
+  build-dir build-aux/flatpak/io.github.Arthurdnl.Autenticador.yml
+flatpak run io.github.Arthurdnl.Autenticador
+```
+
+No Flatpak o desbloqueio por digital fica desativado (v1) e os dados ficam em
+`~/.var/app/io.github.Arthurdnl.Autenticador/data/autenticador/`. Para levar as contas da
+instalação comum para o Flatpak, use menu → Backup → Exportar e depois Importar.
 
 ## Onde ficam os dados
 

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Autenticador
+Comment=Two-factor authentication codes and Brazilian test data generator
+Comment[pt_BR]=Códigos de verificação em 2 etapas (2FA) e gerador de CPF, CNPJ e CEP para testes
+Exec=autenticador
+Icon=io.github.Arthurdnl.Autenticador
+Terminal=false
+StartupNotify=true
+Categories=Utility;Security;
+Keywords=2fa;totp;otp;authenticator;two-factor;cpf;cnpj;cep;
+Keywords[pt_BR]=2fa;totp;otp;autenticador;verificação;cpf;cnpj;cep;gerador;
